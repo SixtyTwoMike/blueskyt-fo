@@ -69,9 +69,12 @@ def fetch_followers():
                 "handle": f.get("handle", ""),
                 "name": f.get("displayName") or "",
             }
-        cursor = page.get("cursor")
-        if not cursor or not page.get("followers"):
+        # Bluesky can return short or even empty pages while more remain,
+        # so only stop when the cursor runs out (or stops moving).
+        next_cursor = page.get("cursor")
+        if not next_cursor or next_cursor == cursor:
             return followers
+        cursor = next_cursor
 
 
 def why_gone(did):
@@ -98,6 +101,24 @@ def main():
         NOTICE.unlink()
 
     current = fetch_followers()
+    try:
+        profile = get("app.bsky.actor.getProfile", {"actor": HANDLE})
+    except Exception:
+        profile = {}
+    (DATA / "status.json").write_text(
+        json.dumps(
+            {
+                "checked_utc": now,
+                "handle": profile.get("handle", HANDLE),
+                "did": profile.get("did"),
+                "name": profile.get("displayName"),
+                "count_on_profile": profile.get("followersCount"),
+                "followers_listed": len(current),
+            },
+            indent=1,
+        )
+        + "\n"
+    )
 
     if not SNAPSHOT.exists():
         snapshot = {
