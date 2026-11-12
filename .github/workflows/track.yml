@@ -1,0 +1,47 @@
+name: Track Bluesky followers
+
+on:
+  schedule:
+    - cron: "17 */6 * * *" # every 6 hours (UTC)
+  workflow_dispatch: # lets you run it by hand from the Actions tab
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: follower-tracker
+  cancel-in-progress: false
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check followers
+        env:
+          BSKY_HANDLE: sixtytwomike.bsky.social
+          NOTICE_FILE: ${{ runner.temp }}/notice.md
+        run: python3 track.py
+
+      - name: Save snapshot
+        run: |
+          git config user.name "follower-tracker"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A data UNFOLLOWS.md
+          git diff --cached --quiet || git commit -m "Follower snapshot $(date -u +'%Y-%m-%d %H:%M') UTC"
+          git push
+
+      - name: Notify about unfollows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTICE_FILE: ${{ runner.temp }}/notice.md
+        run: |
+          if [ -s "$NOTICE_FILE" ]; then
+            count=$(grep -c '^- ' "$NOTICE_FILE")
+            gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Bluesky: $count unfollow(s) on $(date -u +'%d %b %Y')" \
+              --body-file "$NOTICE_FILE"
+          fi
